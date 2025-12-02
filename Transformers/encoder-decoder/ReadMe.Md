@@ -29,9 +29,6 @@ encoder-decoder/
 ├── chat.py               # Simple interactive chat interface
 ├── analyzer.py           # Model analysis and visualization
 ├── downloader.py         # Dataset downloader from HuggingFace
-├── trainer.py            # Generic trainer (synthetic data)
-├── inference.py          # Generic inference (token-based)
-├── data.csv              # Your custom training data
 ├── vocab.json            # Generated vocabulary
 └── checkpoints/          # Saved model checkpoints
     ├── best_model.pt
@@ -231,8 +228,6 @@ Results show:
 |--------|---------|
 | `encoder_decoder.py` | Model architecture |
 | `inference_csv.py` | Method comparison with timing |
-| `trainer.py` | Generic trainer (for testing) |
-| `inference.py` | Generic inference (for testing) |
 
 ## 🔍 Troubleshooting
 
