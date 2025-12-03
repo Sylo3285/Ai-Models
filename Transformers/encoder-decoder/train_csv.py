@@ -10,6 +10,7 @@ import os
 from collections import Counter
 from tqdm import tqdm
 from encoder_decoder import TransformerModel, generate_square_subsequent_mask
+from config import Config
 
 
 class Vocabulary:
@@ -169,12 +170,12 @@ def collate_fn(batch):
     src_batch, tgt_batch = zip(*batch)
     
     # Pad sequences
-    src_batch = nn.utils.rnn.pad_sequence(src_batch, padding_value=0)
-    tgt_batch = nn.utils.rnn.pad_sequence(tgt_batch, padding_value=0)
+    src_batch = nn.utils.rnn.pad_sequence(src_batch, padding_value=0, batch_first=True)
+    tgt_batch = nn.utils.rnn.pad_sequence(tgt_batch, padding_value=0, batch_first=True)
     
     # Create padding masks
-    src_padding_mask = (src_batch == 0).transpose(0, 1)
-    tgt_padding_mask = (tgt_batch == 0).transpose(0, 1)
+    src_padding_mask = (src_batch == 0)
+    tgt_padding_mask = (tgt_batch == 0)
     
     return src_batch, tgt_batch, src_padding_mask, tgt_padding_mask
 
@@ -183,7 +184,7 @@ class Trainer:
     """Trainer class for encoder-decoder transformer model."""
     
     def __init__(self, model, train_loader, val_loader, criterion, optimizer, 
-                 device, checkpoint_dir='checkpoints', scheduler=None, 
+                 device, checkpoint_dir=Config.CHECKPOINT_DIR, scheduler=None, 
                  early_stopping_patience=10, gradient_accumulation_steps=1):
         """
         Args:
@@ -237,11 +238,11 @@ class Trainer:
             src_padding_mask = src_padding_mask.to(self.device)
             tgt_padding_mask = tgt_padding_mask.to(self.device)
             
-            tgt_input = tgt[:-1, :]
-            tgt_output = tgt[1:, :]
+            tgt_input = tgt[:, :-1]
+            tgt_output = tgt[:, 1:]
             tgt_padding_mask_input = tgt_padding_mask[:, :-1]
             
-            tgt_mask = generate_square_subsequent_mask(tgt_input.size(0)).to(self.device)
+            tgt_mask = generate_square_subsequent_mask(tgt_input.size(1)).to(self.device)
             
             # Forward pass
             output = self.model(src, tgt_input, 
@@ -304,11 +305,11 @@ class Trainer:
                 src_padding_mask = src_padding_mask.to(self.device)
                 tgt_padding_mask = tgt_padding_mask.to(self.device)
                 
-                tgt_input = tgt[:-1, :]
-                tgt_output = tgt[1:, :]
+                tgt_input = tgt[:, :-1]
+                tgt_output = tgt[:, 1:]
                 tgt_padding_mask_input = tgt_padding_mask[:, :-1]
                 
-                tgt_mask = generate_square_subsequent_mask(tgt_input.size(0)).to(self.device)
+                tgt_mask = generate_square_subsequent_mask(tgt_input.size(1)).to(self.device)
                 
                 output = self.model(src, tgt_input,
                                   tgt_mask=tgt_mask,
@@ -397,43 +398,26 @@ class Trainer:
 
 
 if __name__ == '__main__':
-    # Configuration
-    CSV_PATH = 'datasets/dailydialogue.csv'
-    VOCAB_PATH = 'vocab.json'
-    D_MODEL = 256
-    NHEAD = 8
-    D_HID = 1024
-    NLAYERS = 4
-    DROPOUT = 0.1
-    BATCH_SIZE = 16
-    NUM_EPOCHS = 100  # Can train longer with early stopping
-    LEARNING_RATE = 0.0001
+    # Ensure directories exist
+    Config.ensure_dirs()
     
-    # Training enhancements
-    EARLY_STOPPING_PATIENCE = 10  # Stop if no improvement for 10 epochs
-    GRADIENT_ACCUMULATION_STEPS = 2  # Effective batch size = 16 * 2 = 32
-    LR_SCHEDULER_PATIENCE = 3  # Reduce LR if no improvement for 3 epochs
-    LR_SCHEDULER_FACTOR = 0.5  # Multiply LR by 0.5 when reducing
-    
-    # Device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'Using device: {device}')
+    print(f'Using device: {Config.DEVICE}')
     print()
     
     # Load and preprocess data
-    train_src, train_tgt, val_src, val_tgt, vocab = load_csv_data(CSV_PATH, train_split=0.9)
+    train_src, train_tgt, val_src, val_tgt, vocab = load_csv_data(Config.CSV_PATH, train_split=0.9)
     
     # Save vocabulary
-    vocab.save(VOCAB_PATH)
+    vocab.save(Config.VOCAB_PATH)
     print()
     
     # Create datasets and dataloaders
     train_dataset = Seq2SeqDataset(train_src, train_tgt)
     val_dataset = Seq2SeqDataset(val_src, val_tgt)
     
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, 
+    train_loader = DataLoader(train_dataset, batch_size=Config.BATCH_SIZE, 
                              shuffle=True, collate_fn=collate_fn)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, 
+    val_loader = DataLoader(val_dataset, batch_size=Config.BATCH_SIZE, 
                            shuffle=False, collate_fn=collate_fn)
     
     # Create model
@@ -441,11 +425,11 @@ if __name__ == '__main__':
     VOCAB_SIZE = len(vocab)
     model = TransformerModel(
         ntoken=VOCAB_SIZE,
-        d_model=D_MODEL,
-        nhead=NHEAD,
-        d_hid=D_HID,
-        nlayers=NLAYERS,
-        dropout=DROPOUT
+        d_model=Config.D_MODEL,
+        nhead=Config.NHEAD,
+        d_hid=Config.D_HID,
+        nlayers=Config.NLAYERS,
+        dropout=Config.DROPOUT
     )
     
     print(f'Model parameters: {sum(p.numel() for p in model.parameters()):,}')
@@ -453,14 +437,14 @@ if __name__ == '__main__':
     
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss(ignore_index=0)  # Ignore padding
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = optim.Adam(model.parameters(), lr=Config.LEARNING_RATE)
     
     # Learning rate scheduler
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 
         mode='min',
-        factor=LR_SCHEDULER_FACTOR,
-        patience=LR_SCHEDULER_PATIENCE,
+        factor=Config.LR_SCHEDULER_FACTOR,
+        patience=Config.LR_SCHEDULER_PATIENCE,
         min_lr=1e-6
     )
     
@@ -471,11 +455,12 @@ if __name__ == '__main__':
         val_loader=val_loader,
         criterion=criterion,
         optimizer=optimizer,
-        device=device,
+        device=Config.DEVICE,
         scheduler=scheduler,
-        early_stopping_patience=EARLY_STOPPING_PATIENCE,
-        gradient_accumulation_steps=GRADIENT_ACCUMULATION_STEPS
+        early_stopping_patience=Config.EARLY_STOPPING_PATIENCE,
+        gradient_accumulation_steps=Config.GRADIENT_ACCUMULATION_STEPS,
+        checkpoint_dir=Config.CHECKPOINT_DIR
     )
     
     # Train
-    trainer.train(num_epochs=NUM_EPOCHS, vocab=vocab, save_every=10)
+    trainer.train(num_epochs=Config.NUM_EPOCHS, vocab=vocab, save_every=10)

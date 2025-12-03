@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import json
 import sys
 from encoder_decoder import TransformerModel, generate_square_subsequent_mask
+from config import Config
 
 
 class Vocabulary:
@@ -70,21 +71,24 @@ class Chatbot:
         """Generate response for input text."""
         # Encode input
         src_tokens = self.vocab.encode(input_text, add_special_tokens=False)
-        src = torch.tensor(src_tokens, dtype=torch.long).unsqueeze(1).to(self.device)
+        # Create tensor in batch_first format: [batch_size, seq_len]
+        src = torch.tensor(src_tokens, dtype=torch.long).unsqueeze(0).to(self.device)
         
         with torch.no_grad():
             # Encode source
             memory = self.model.encode(src, None)
             
-            # Initialize target with BOS token
+            # Initialize target with BOS token in batch_first format: [batch_size, seq_len]
             tgt = torch.tensor([[self.bos_token]], dtype=torch.long, device=self.device)
             generated = [self.bos_token]
             
             # Generate tokens one by one
             for _ in range(max_len):
-                tgt_mask = generate_square_subsequent_mask(tgt.size(0)).to(self.device)
+                # tgt_mask size should match tgt sequence length (dimension 1 when batch_first=True)
+                tgt_mask = generate_square_subsequent_mask(tgt.size(1)).to(self.device)
                 output = self.model.decode(tgt, memory, tgt_mask)
-                output = self.model.output_projection(output[-1, :, :])
+                # Get the last token's output: [batch_size, vocab_size]
+                output = self.model.output_projection(output[:, -1, :])
                 prob = F.softmax(output, dim=-1)
                 next_token = prob.argmax(dim=-1).item()
                 
@@ -93,7 +97,8 @@ class Chatbot:
                 if next_token == self.eos_token:
                     break
                 
-                tgt = torch.cat([tgt, torch.tensor([[next_token]], dtype=torch.long, device=self.device)], dim=0)
+                # Concatenate along sequence dimension (dim=1 for batch_first)
+                tgt = torch.cat([tgt, torch.tensor([[next_token]], dtype=torch.long, device=self.device)], dim=1)
             
             # Decode to text
             response = self.vocab.decode(generated, skip_special_tokens=True)
@@ -101,14 +106,6 @@ class Chatbot:
 
 
 def main():
-    # Configuration
-    CHECKPOINT_PATH = 'checkpoints/best_model.pt'
-    VOCAB_PATH = 'vocab.json'
-    D_MODEL = 256
-    NHEAD = 8
-    D_HID = 1024
-    NLAYERS = 4
-    
     print('=' * 80)
     print('                    neura AI VTuber - Interactive Chat')
     print('=' * 80)
@@ -116,36 +113,35 @@ def main():
     
     # Check if files exist
     import os
-    if not os.path.exists(CHECKPOINT_PATH):
-        print(f'❌ Error: Checkpoint not found at {CHECKPOINT_PATH}')
+    if not os.path.exists(Config.BEST_MODEL_PATH):
+        print(f'❌ Error: Checkpoint not found at {Config.BEST_MODEL_PATH}')
         print('   Please train the model first using: python train_csv.py')
         sys.exit(1)
     
-    if not os.path.exists(VOCAB_PATH):
-        print(f'❌ Error: Vocabulary not found at {VOCAB_PATH}')
+    if not os.path.exists(Config.VOCAB_PATH):
+        print(f'❌ Error: Vocabulary not found at {Config.VOCAB_PATH}')
         print('   Please train the model first using: python train_csv.py')
         sys.exit(1)
     
     # Device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'🔧 Loading model on {device}...')
+    print(f'🔧 Loading model on {Config.DEVICE}...')
     
     # Load vocabulary
-    vocab = Vocabulary.load(VOCAB_PATH)
+    vocab = Vocabulary.load(Config.VOCAB_PATH)
     print(f'📚 Vocabulary loaded: {len(vocab)} tokens')
     
     # Create model
     model = TransformerModel(
         ntoken=len(vocab),
-        d_model=D_MODEL,
-        nhead=NHEAD,
-        d_hid=D_HID,
-        nlayers=NLAYERS,
+        d_model=Config.D_MODEL,
+        nhead=Config.NHEAD,
+        d_hid=Config.D_HID,
+        nlayers=Config.NLAYERS,
         dropout=0.1
     )
     
     # Load checkpoint
-    checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
+    checkpoint = torch.load(Config.BEST_MODEL_PATH, map_location=Config.DEVICE)
     model.load_state_dict(checkpoint['model_state_dict'])
     
     print(f'✅ Model loaded from checkpoint (epoch {checkpoint["epoch"]})')
@@ -153,7 +149,7 @@ def main():
     print()
     
     # Create chatbot
-    chatbot = Chatbot(model, vocab, device)
+    chatbot = Chatbot(model, vocab, Config.DEVICE)
     
     print('=' * 80)
     print('💬 Chat started! Type your message and press Enter.')

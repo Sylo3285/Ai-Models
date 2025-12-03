@@ -12,11 +12,12 @@ class PositionalEncoding(nn.Module):
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
+        pe = pe.unsqueeze(0)  # [1, max_len, d_model]
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
+        # x: [batch_size, seq_len, d_model] when batch_first=True
+        x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
 
 class TransformerModel(nn.Module):
@@ -33,7 +34,8 @@ class TransformerModel(nn.Module):
                                           num_encoder_layers=nlayers, 
                                           num_decoder_layers=nlayers, 
                                           dim_feedforward=d_hid, 
-                                          dropout=dropout)
+                                          dropout=dropout,
+                                          batch_first=True)
         
         # Output projection layer to vocabulary
         self.output_projection = nn.Linear(d_model, ntoken)
@@ -49,8 +51,8 @@ class TransformerModel(nn.Module):
         self.output_projection.weight = self.decoder.weight
 
     def forward(self, src, tgt, src_mask=None, tgt_mask=None, src_padding_mask=None, tgt_padding_mask=None, memory_key_padding_mask=None):
-        # src: [src_len, batch_size]
-        # tgt: [tgt_len, batch_size]
+        # src: [batch_size, src_len]
+        # tgt: [batch_size, tgt_len]
         
         src = self.encoder(src) * math.sqrt(self.d_model)
         src = self.pos_encoder(src)
@@ -68,14 +70,16 @@ class TransformerModel(nn.Module):
         return output
 
     def encode(self, src, src_mask):
+        # src: [batch_size, src_len] when batch_first=True
         src = self.encoder(src) * math.sqrt(self.d_model)
         src = self.pos_encoder(src)
-        return self.transformer.encoder(src, src_mask)
+        return self.transformer.encoder(src, mask=src_mask)
 
     def decode(self, tgt, memory, tgt_mask):
+        # tgt: [batch_size, tgt_len] when batch_first=True
         tgt = self.decoder(tgt) * math.sqrt(self.d_model)
         tgt = self.pos_encoder(tgt)
-        return self.transformer.decoder(tgt, memory, tgt_mask)
+        return self.transformer.decoder(tgt, memory, tgt_mask=tgt_mask)
 
 def generate_square_subsequent_mask(sz):
     mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)

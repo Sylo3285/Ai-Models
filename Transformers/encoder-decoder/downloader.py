@@ -7,6 +7,7 @@ and converts it to CSV format with input/output columns for easy training.
 from datasets import load_dataset
 import pandas as pd
 import os
+from config import Config
 
 
 def download_dailydialog():
@@ -18,7 +19,7 @@ def download_dailydialog():
     print()
     
     # Create datasets directory if it doesn't exist
-    os.makedirs('datasets', exist_ok=True)
+    Config.ensure_dirs()
     
     print('Downloading dataset from Hugging Face...')
     print('Dataset: bayes-group-diffusion/daily_dialog')
@@ -56,7 +57,7 @@ def download_dailydialog():
         df = pd.DataFrame(all_data)
         
         # Save to CSV
-        output_path = 'datasets/dailydialogue.csv'
+        output_path = Config.CSV_PATH
         df.to_csv(output_path, index=False, encoding='utf-8')
         
         print('=' * 80)

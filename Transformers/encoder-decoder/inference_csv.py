@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import json
 from encoder_decoder import TransformerModel, generate_square_subsequent_mask
+from config import Config
 
 
 class Vocabulary:
@@ -116,7 +117,8 @@ class ChatbotInference:
         """
         # Encode input
         src_tokens = self.vocab.encode(input_text, add_special_tokens=False)
-        src = torch.tensor(src_tokens, dtype=torch.long).unsqueeze(1).to(self.device)
+        # Create tensor in batch_first format: [batch_size, seq_len]
+        src = torch.tensor(src_tokens, dtype=torch.long).unsqueeze(0).to(self.device)
         
         # Generate
         if method == 'greedy':
@@ -138,15 +140,17 @@ class ChatbotInference:
             # Encode source
             memory = self.model.encode(src, None)
             
-            # Initialize target with BOS token
+            # Initialize target with BOS token in batch_first format: [batch_size, seq_len]
             tgt = torch.tensor([[self.bos_token]], dtype=torch.long, device=self.device)
             
             generated = [self.bos_token]
             
             for _ in range(max_len):
-                tgt_mask = generate_square_subsequent_mask(tgt.size(0)).to(self.device)
+                # tgt_mask size should match tgt sequence length (dimension 1 when batch_first=True)
+                tgt_mask = generate_square_subsequent_mask(tgt.size(1)).to(self.device)
                 output = self.model.decode(tgt, memory, tgt_mask)
-                output = self.model.output_projection(output[-1, :, :])
+                # Get the last token's output: [batch_size, vocab_size]
+                output = self.model.output_projection(output[:, -1, :])
                 prob = F.softmax(output, dim=-1)
                 next_token = prob.argmax(dim=-1).item()
                 
@@ -155,7 +159,8 @@ class ChatbotInference:
                 if next_token == self.eos_token:
                     break
                 
-                tgt = torch.cat([tgt, torch.tensor([[next_token]], dtype=torch.long, device=self.device)], dim=0)
+                # Concatenate along sequence dimension (dim=1 for batch_first)
+                tgt = torch.cat([tgt, torch.tensor([[next_token]], dtype=torch.long, device=self.device)], dim=1)
             
             return generated
     
@@ -175,10 +180,13 @@ class ChatbotInference:
                         candidates.append((seq, score))
                         continue
                     
-                    tgt = torch.tensor([seq], dtype=torch.long, device=self.device).transpose(0, 1)
-                    tgt_mask = generate_square_subsequent_mask(tgt.size(0)).to(self.device)
+                    # Create tensor in batch_first format: [batch_size, seq_len]
+                    tgt = torch.tensor([seq], dtype=torch.long, device=self.device)
+                    # tgt_mask size should match tgt sequence length (dimension 1 when batch_first=True)
+                    tgt_mask = generate_square_subsequent_mask(tgt.size(1)).to(self.device)
                     output = self.model.decode(tgt, memory, tgt_mask)
-                    output = self.model.output_projection(output[-1, :, :])
+                    # Get the last token's output: [batch_size, vocab_size]
+                    output = self.model.output_projection(output[:, -1, :])
                     log_prob = F.log_softmax(output, dim=-1)
                     
                     topk_log_probs, topk_indices = log_prob.topk(beam_width)
@@ -231,30 +239,19 @@ class ChatbotInference:
 if __name__ == '__main__':
     import time
     
-    # Configuration
-    CHECKPOINT_PATH = 'checkpoints/best_model.pt'
-    VOCAB_PATH = 'vocab.json'
-    D_MODEL = 256
-    NHEAD = 8
-    D_HID = 1024
-    NLAYERS = 4
-    BEAM_WIDTHS = [3, 5, 7]  # Different beam widths to test
-    
-    # Device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'Using device: {device}')
+    print(f'Using device: {Config.DEVICE}')
     print()
     
     # Load model
     print('Loading model...')
     chatbot = ChatbotInference.from_checkpoint(
-        checkpoint_path=CHECKPOINT_PATH,
-        vocab_path=VOCAB_PATH,
-        d_model=D_MODEL,
-        nhead=NHEAD,
-        d_hid=D_HID,
-        nlayers=NLAYERS,
-        device=device
+        checkpoint_path=Config.BEST_MODEL_PATH,
+        vocab_path=Config.VOCAB_PATH,
+        d_model=Config.D_MODEL,
+        nhead=Config.NHEAD,
+        d_hid=Config.D_HID,
+        nlayers=Config.NLAYERS,
+        device=Config.DEVICE
     )
     print()
     
@@ -288,7 +285,7 @@ if __name__ == '__main__':
         print(f'Time: {greedy_time:.4f} seconds')
         
         # Beam Search with different widths
-        for beam_width in BEAM_WIDTHS:
+        for beam_width in Config.BEAM_WIDTHS:
             start_time = time.time()
             beam_response = chatbot.generate_response(input_text, method='beam', beam_width=beam_width)
             beam_time = time.time() - start_time
@@ -320,8 +317,8 @@ if __name__ == '__main__':
         greedy_times.append(time.time() - start)
     
     # Beam search timing for each width
-    beam_times = {width: [] for width in BEAM_WIDTHS}
-    for width in BEAM_WIDTHS:
+    beam_times = {width: [] for width in Config.BEAM_WIDTHS}
+    for width in Config.BEAM_WIDTHS:
         for input_text in test_inputs:
             start = time.time()
             chatbot.generate_response(input_text, method='beam', beam_width=width)
@@ -334,7 +331,7 @@ if __name__ == '__main__':
     print(f'  Min time: {min(greedy_times):.4f} seconds')
     print(f'  Max time: {max(greedy_times):.4f} seconds')
     
-    for width in BEAM_WIDTHS:
+    for width in Config.BEAM_WIDTHS:
         avg_beam = sum(beam_times[width]) / len(beam_times[width])
         print(f'\nBeam Search (width={width}):')
         print(f'  Average time: {avg_beam:.4f} seconds')

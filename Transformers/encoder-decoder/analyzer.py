@@ -9,10 +9,12 @@ import json
 from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
+from config import Config
 
 
-def find_checkpoints(checkpoint_dir='checkpoints'):
+def find_checkpoints(checkpoint_dir=Config.CHECKPOINT_DIR):
     """Find all checkpoint files in the directory."""
     if not os.path.exists(checkpoint_dir):
         return []
@@ -122,7 +124,7 @@ def compare_checkpoints(checkpoints_info):
     print()
 
 
-def plot_training_history(info, output_dir='analysis'):
+def plot_training_history(info, output_dir=Config.ANALYSIS_DIR):
     """Plot training history."""
     if not info['train_losses']:
         return
@@ -182,9 +184,9 @@ def plot_training_history(info, output_dir='analysis'):
     print(f'📊 Training history plot saved to: {output_path}')
 
 
-def analyze_best_model(checkpoint_dir='checkpoints'):
+def analyze_best_model(checkpoint_dir=Config.CHECKPOINT_DIR):
     """Analyze the best model."""
-    best_model_path = os.path.join(checkpoint_dir, 'best_model.pt')
+    best_model_path = Config.BEST_MODEL_PATH
     
     if not os.path.exists(best_model_path):
         print(f'❌ Best model not found at {best_model_path}')
@@ -208,7 +210,7 @@ def main():
     checkpoints = find_checkpoints()
     
     if not checkpoints:
-        print('❌ No checkpoints found in checkpoints/ directory')
+        print(f'❌ No checkpoints found in {Config.CHECKPOINT_DIR}/ directory')
         print('   Please train a model first using: python train_csv.py')
         return
     
@@ -233,7 +235,7 @@ def main():
         print('ALL CHECKPOINTS:')
         print()
         for info in checkpoints_info:
-            if info['filename'] != 'best_model.pt':
+            if info['filename'] != os.path.basename(Config.BEST_MODEL_PATH):
                 print_checkpoint_summary(info)
     
     # Compare checkpoints
