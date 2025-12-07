@@ -1,0 +1,17 @@
+{
+    "num_samples": 34792,
+    "num_classes": 8,
+    "max_sequence_length": 316,
+    "vocab_size": 5000,
+    "tokenizer_type": "BPE",
+    "emotion_distribution": {
+        "neutral": 2254,
+        "joy": 11045,
+        "sadness": 6722,
+        "fear": 5410,
+        "surprise": 4062,
+        "anger": 4297,
+        "shame": 146,
+        "disgust": 856
+    }
+}
