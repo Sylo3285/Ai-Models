@@ -69,7 +69,7 @@ def plot_metrics():
     plt.tight_layout()
     
     # Save plot
-    plot_path = '../outputs/training_metrics.png'
+    plot_path = 'outputs/training_metrics.png'
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
     print(f"✔ Metrics plot saved to {plot_path}")
     
