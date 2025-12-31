@@ -1,32 +1,32 @@
 import torch
-from model import ANN
-import config
-import pandas as pd
+from model import load_model
 
-def load_model():
-    model = ANN().to(config.device)
-    model.load_state_dict(torch.load('model.pt'))
-    model.eval()
-    return model
 
-def predict_cost(fuel, toll, time, labor):
-    model = load_model()
-    inputs = torch.tensor([[fuel, toll, time, labor]], dtype=torch.float32).to(config.device)
+def run_demo(model_path: str = "model.pt"):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = load_model(model_path, device=device)
+
+    examples = [
+        (1.2, 3.4),
+        (10.0, 20.0),
+        (-5.0, 2.0),
+        (123.45, 67.89),
+        (-100.0, 50.0),
+        (1000,1000),
+        (-250.5, 125.25),
+        (0.0, 0.0),
+        (3.1415, 2.7182),
+        (-1.0, -1.0),
+        (10000,1000)
+    ]
+
+    xs = torch.tensor(examples, dtype=torch.float32).to(device)
     with torch.no_grad():
-        prediction = model(inputs)
-    return prediction.item()
+        preds = model(xs).squeeze(-1).cpu().numpy()
 
-def main():
-    # Example usage
-    fuel = 500
-    toll = 100
-    time = 60
-    labor = 1000
-    
-    predicted_cost = predict_cost(fuel, toll, time, labor)
-    print(f"Predicted Cost: {predicted_cost:.2f}")
-    cost = (fuel * 1.2) + toll + labor 
-    print(f"Actual Cost: {cost:.2f}")
+    for (a, b), p in zip(examples, preds):
+        print(f"{a} + {b} = predicted {p:.4f} (expected {a + b:.4f})")
+
 
 if __name__ == "__main__":
-    main()
+    run_demo()

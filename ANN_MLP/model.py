@@ -1,24 +1,40 @@
+import torch
 import torch.nn as nn
-from config import *
+import config
 
-class ANN(nn.Module):
-    def __init__(self):
-        super(ANN, self).__init__()
 
-        self.layer1 = nn.Linear(input_size, hidden_size)
-        self.bn1 = nn.BatchNorm1d(hidden_size)
+class MLP(nn.Module):
+    def __init__(self, input_dim: int | None = None, hidden_sizes=None, output_dim: int | None = None):
+        super().__init__()
+        if input_dim is None:
+            input_dim = config.input_size
+        if output_dim is None:
+            output_dim = config.output_size
+        if hidden_sizes is None:
+            # config.hidden_size may be a single int; use as single hidden layer
+            hidden_sizes = (config.hidden_size,) if isinstance(config.hidden_size, int) else tuple(config.hidden_size)
+        layers = []
+        in_dim = input_dim
+        for h in hidden_sizes:
+            layers.append(nn.Linear(in_dim, h))
+            layers.append(nn.ReLU())
+            in_dim = h
+        layers.append(nn.Linear(in_dim, output_dim))
+        self.net = nn.Sequential(*layers)
 
-        self.hidden1 = nn.Linear(hidden_size, hidden_size)
-        self.bn2 = nn.BatchNorm1d(hidden_size)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
 
-        self.layer2 = nn.Linear(hidden_size, output_size)
 
-        self.act = nn.GELU()
+def save_model(model: nn.Module, path: str):
+    torch.save(model.state_dict(), path)
 
-        self.drop = nn.Dropout(0.1)
 
-    def forward(self, x):
-        out = self.act(self.bn1(self.layer1(x)))
-        out = self.act(self.bn2(self.hidden1(out)))
-        out = self.layer2(out)
-        return out
+def load_model(path: str, device: torch.device | None = None) -> nn.Module:
+    if device is None:
+        device = torch.device(config.device)
+    model = MLP()
+    model.load_state_dict(torch.load(path, map_location=device))
+    model.to(device)
+    model.eval()
+    return model

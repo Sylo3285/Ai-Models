@@ -1,113 +1,52 @@
-import torch
-from tqdm import tqdm
-from model import ANN
-import config
+from typing import Tuple
+
+import os
 import pandas as pd
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, TensorDataset
 
-def train_model(X_train, y_train, X_val, y_val, y_mean=None, y_std=None, patience=20):
-    model = ANN().to(config.device)
-    criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
-
-    X_train = X_train.to(config.device)
-    y_train = y_train.to(config.device)
-    X_val = X_val.to(config.device)
-    y_val = y_val.to(config.device)
-    
-    if y_mean is not None:
-        y_mean = y_mean.to(config.device)
-        y_std = y_std.to(config.device)
-
-    best_val_loss = float("inf")
-    best_model_state = None
-    wait = 0  # tracks epochs since improvement
-
-    for epoch in tqdm(range(config.num_epochs), desc="Training Progress"):
-        model.train()
-
-        optimizer.zero_grad()
-        outputs = model(X_train)
-        loss = criterion(outputs, y_train)
-        loss.backward()
-        optimizer.step()
-
-        # -------------------------
-        # Validation
-        # -------------------------
-        model.eval()
-        with torch.no_grad():
-            val_pred = model(X_val)
-            val_loss = criterion(val_pred, y_val).item()
-            
-            # Un-normalize predictions for readable MAE
-            if y_mean is not None and y_std is not None:
-                val_pred_orig = val_pred * y_std + y_mean
-                y_val_orig = y_val * y_std + y_mean
-                val_mae = torch.mean(torch.abs(val_pred_orig - y_val_orig)).item()
-            else:
-                val_mae = torch.mean(torch.abs(val_pred - y_val)).item()
-
-        print(f"Epoch [{epoch+1}/{config.num_epochs}] "
-              f"Train Loss: {loss.item():.4f} | "
-              f"Val Loss: {val_loss:.4f} | "
-              f"Val MAE: {val_mae:.4f}")
-
-        # -------------------------
-        # Early Stopping
-        # -------------------------
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_model_state = model.state_dict()
-            wait = 0
-        else:
-            wait += 1
-            if wait >= patience:
-                print(f"\n⛔ Early Stopping triggered at epoch {epoch+1}")
-                break
-
-    # Load best model weights before returning
-    model.load_state_dict(best_model_state)
-    return model
+from model import MLP, save_model
 
 
-def split_data(x, y, train_ratio=0.8):
-    dataset = torch.utils.data.TensorDataset(x, y)
+def make_dataset(n_samples: int = 20000, low: float = -100.0, high: float = 100.0) -> Tuple[torch.Tensor, torch.Tensor]:
+    rng = np.random.RandomState(0)
+    a = rng.uniform(low, high, size=(n_samples, 1)).astype(np.float32)
+    b = rng.uniform(low, high, size=(n_samples, 1)).astype(np.float32)
+    x = np.concatenate([a, b], axis=1)
+    y = (a + b).astype(np.float32)
+    return torch.from_numpy(x), torch.from_numpy(y)
 
-    train_size = int(train_ratio * len(dataset))
-    val_size = len(dataset) - train_size
+def train(epochs: int = 200, batch_size: int = 256, lr: float = 1e-3, save_path: str = "model.pth"):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    x, y = make_dataset()
+    ds = TensorDataset(x, y)
+    dl = DataLoader(ds, batch_size=batch_size, shuffle=True)
 
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        dataset, [train_size, val_size]
-    )
+    model = MLP()
+    model.to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = torch.nn.MSELoss()
 
-    # unpack back into tensors (since you said no DataLoader)
-    x_train = train_dataset[:][0]
-    y_train = train_dataset[:][1]
+    for epoch in range(1, epochs + 1):
+        running = 0.0
+        for xb, yb in dl:
+            xb = xb.to(device)
+            yb = yb.to(device)
+            pred = model(xb)
+            loss = loss_fn(pred, yb)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            running += loss.item() * xb.size(0)
+        epoch_loss = running / len(ds)
+        if epoch % max(1, epochs // 10) == 0 or epoch == 1:
+            print(f"Epoch {epoch}/{epochs} - loss: {epoch_loss:.6f}")
 
-    x_val = val_dataset[:][0]
-    y_val = val_dataset[:][1]
-
-    return x_train, y_train, x_val, y_val
+    save_model(model, save_path)
+    print(f"Model saved to {save_path}")
 
 
-
-df = pd.read_csv('data.csv')
-
-X = torch.tensor(df[['fuel','toll','time','labor']].values, dtype=torch.float32)
-y = torch.tensor(df[['cost']].values, dtype=torch.float32)
-
-X_train, y_train, X_val, y_val = split_data(X, y)
-
-# Normalization
-X_mean = X_train.mean(dim=0)
-X_std = X_train.std(dim=0)
-y_mean = y_train.mean(dim=0)
-y_std = y_train.std(dim=0)
-
-X_train = (X_train - X_mean) / (X_std + 1e-8)
-y_train = (y_train - y_mean) / (y_std + 1e-8)
-X_val = (X_val - X_mean) / (X_std + 1e-8)
-y_val = (y_val - y_mean) / (y_std + 1e-8)
-
-model = train_model(X_train, y_train, X_val, y_val, y_mean, y_std, patience=20)
-torch.save(model.state_dict(), 'model.pt')
+if __name__ == "__main__":
+    import config
+    train(epochs=config.num_epochs, batch_size=config.batch_size, lr=config.lr, save_path="model.pt")
