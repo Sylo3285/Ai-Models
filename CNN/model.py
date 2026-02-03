@@ -34,3 +34,8 @@ class SimpleCNN(nn.Module):
         x = self.flatten(x)
         x = self.fc(x)
         return x
+
+
+img = [
+    [1,2,3,4,5,6,7,8,9]
+]
